@@ -1,0 +1,23 @@
+{
+  "name": "@xbridge/setup",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "fund-doors": "ts-node scripts/01-fund-doors.ts",
+    "create-bridge": "ts-node scripts/02-create-bridge.ts",
+    "set-signers": "ts-node scripts/03-set-signer-list.ts",
+    "setup-trust": "ts-node scripts/04-setup-trust.ts",
+    "verify": "ts-node scripts/05-verify.ts",
+    "setup-all": "ts-node scripts/01-fund-doors.ts && ts-node scripts/02-create-bridge.ts && ts-node scripts/05-verify.ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@transia/xrpl": "^4.2.5",
+    "@xbridge/config": "workspace:*",
+    "dotenv": "^17.2.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,27 @@
+services:
+  witness-1:
+    build:
+      context: packages/witness
+    container_name: xbridge-witness-1
+    env_file: .env.witness1
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+
+  witness-2:
+    build:
+      context: packages/witness
+    container_name: xbridge-witness-2
+    env_file: .env.witness2
+    ports:
+      - "3002:3000"
+    restart: unless-stopped
+
+  witness-3:
+    build:
+      context: packages/witness
+    container_name: xbridge-witness-3
+    env_file: .env.witness3
+    ports:
+      - "3003:3000"
+    restart: unless-stopped

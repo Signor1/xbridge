@@ -1,0 +1,24 @@
+{
+  "name": "@xbridge/witness",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/main.ts",
+    "start": "node dist/main.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@transia/xrpl": "^4.2.5",
+    "@xbridge/config": "workspace:*",
+    "better-sqlite3": "^11.0.0",
+    "dotenv": "^17.2.0",
+    "fastify": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.7.0"
+  }
+}

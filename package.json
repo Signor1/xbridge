@@ -1,0 +1,23 @@
+{
+  "name": "xbridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-chain bridge between Xahau and XRPL using native XChainBridge protocol",
+  "author": "XBridge",
+  "license": "MIT",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "xbridge-testnet",
+  "env": "testnet",
+  "bridge": {
+    "LockingChainDoor": "",
+    "LockingChainIssue": { "currency": "XRP" },
+    "IssuingChainDoor": "",
+    "IssuingChainIssue": { "currency": "XRP" },
+    "SignatureReward": "100",
+    "MinAccountCreateAmount": "10000000"
+  },
+  "witnesses": [],
+  "quorum": 2,
+  "_comment": "Fill door accounts and witnesses after running setup scripts"
+}
