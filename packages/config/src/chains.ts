@@ -23,7 +23,7 @@ export const XAHAU_TESTNET: ChainConfig = {
   networkId: 21338,
   wss: "wss://xahau-test.net",
   explorer: "https://xahau-testnet.xrplwin.com",
-  faucet: "https://xahau-test.net/accounts",
+  faucet: "https://xahau-test.net/accounts", // POST with optional { destination } to fund existing
 };
 
 export const XRPL_MAINNET: ChainConfig = {
@@ -38,7 +38,7 @@ export const XRPL_TESTNET: ChainConfig = {
   networkId: 1,
   wss: "wss://s.altnet.rippletest.net:51233",
   explorer: "https://testnet.xrpl.org",
-  faucet: "https://faucet.altnet.rippletest.net/accounts",
+  faucet: "https://faucet.altnet.rippletest.net/accounts", // POST with optional { destination } to fund existing
 };
 
 export type NetworkEnv = "testnet" | "mainnet";
