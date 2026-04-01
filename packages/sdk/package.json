@@ -9,7 +9,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@transia/xrpl": "^4.2.5",
+    "@transia/xrpl": "^2.7.3-alpha.28",
     "@xbridge/config": "workspace:*"
   },
   "devDependencies": {
