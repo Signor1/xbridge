@@ -1,6 +1,6 @@
 # XBridge
 
-Cross-chain bridge between **Xahau** and **XRPL Mainnet** using the native XChainBridge protocol (XLS-38d).
+Cross-chain bridge between **Xahau** and **XRPL Mainnet** using the native [XChainBridge protocol](https://github.com/ripple/xbridge_witness) (XLS-38d).
 
 Users visit a one-page app, connect their wallets, pick a direction, enter an amount, and bridge. Behind the scenes, XRPL's native cross-chain protocol handles claim IDs, witness attestations, and automatic asset release.
 
