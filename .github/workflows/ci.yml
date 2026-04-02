@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build:
+    name: Build & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build config
+        run: pnpm --filter @xbridge/config build
+
+      - name: Type check setup
+        run: pnpm --filter @xbridge/setup exec tsc --noEmit
+
+      - name: Build witness
+        run: pnpm --filter @xbridge/witness build
+
+      - name: Build SDK
+        run: pnpm --filter @xbridge/sdk build
+
+      - name: Build app
+        run: pnpm --filter @xbridge/app build
