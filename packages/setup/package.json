@@ -8,7 +8,8 @@
     "set-signers": "ts-node scripts/03-set-signer-list.ts",
     "setup-trust": "ts-node scripts/04-setup-trust.ts",
     "verify": "ts-node scripts/05-verify.ts",
-    "setup-all": "ts-node scripts/01-fund-doors.ts && ts-node scripts/02-create-bridge.ts && ts-node scripts/05-verify.ts",
+    "save-config": "ts-node scripts/06-save-config.ts",
+    "setup-all": "ts-node scripts/01-fund-doors.ts && ts-node scripts/02-create-bridge.ts && ts-node scripts/03-set-signer-list.ts && ts-node scripts/05-verify.ts && ts-node scripts/06-save-config.ts",
     "clean": "rm -rf dist"
   },
   "dependencies": {
