@@ -9,31 +9,44 @@ import "dotenv/config";
 import { listener } from "./listener";
 import { startHealthServer } from "./health";
 import { initDb } from "./db";
+import { getWitnessName, getEnv, getDoorAddresses, getBridgeDefinition } from "./config";
 
-const WITNESS_NAME = process.env.WITNESS_NAME || "witness-1";
 const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || "3000", 10);
 
 async function main() {
-  console.log(`\n=== XBridge Witness: ${WITNESS_NAME} ===\n`);
+  const name = getWitnessName();
+  const env = getEnv();
 
-  // Initialize SQLite for processed commits tracking
+  console.log(`\n=== XBridge Witness: ${name} (${env}) ===\n`);
+
+  // Validate config early
+  const doors = getDoorAddresses();
+  const bridge = getBridgeDefinition();
+  console.log(`Xahau door: ${doors.xahauDoor}`);
+  console.log(`XRPL door:  ${doors.xrplDoor}`);
+  console.log(`Token:      ${bridge.LockingChainIssue.currency}`);
+
+  // Initialize SQLite for idempotency
   initDb();
 
-  // Start health check endpoint
+  // Start health endpoint
   await startHealthServer(HEALTH_PORT);
-  console.log(`Health: http://localhost:${HEALTH_PORT}/health`);
+  console.log(`Health:     http://localhost:${HEALTH_PORT}/health`);
 
-  // Start listening on both chains
+  // Subscribe to both chains
   await listener.start();
 
-  console.log("\nWitness running. Watching for XChainCommit events...");
+  console.log(`\n${name} running. Watching for XChainCommit events...\n`);
 
-  // Keep alive
-  process.on("SIGINT", async () => {
+  // Graceful shutdown
+  const shutdown = async () => {
     console.log("\nShutting down...");
     await listener.stop();
     process.exit(0);
-  });
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 main().catch((err) => {

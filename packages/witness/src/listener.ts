@@ -1,30 +1,23 @@
 /**
- * Chain listener — subscribes to both chains and detects XChainCommit events
+ * Chain listener — subscribes to both chains, detects XChainCommit,
+ * and triggers attestation. Handles reconnection on WebSocket drop.
  */
 
 import { Client, Wallet } from "@transia/xrpl";
-import { getChains, type NetworkEnv } from "@xbridge/config";
 import { buildAndSubmitAttestation } from "./attestation";
 import { isProcessed, markProcessed } from "./db";
-
-const ENV = (process.env.XBRIDGE_ENV || "testnet") as NetworkEnv;
+import { getChains, getDoorAddresses, getEnv, getWitnessSeed, getWitnessName } from "./config";
 
 let xahauClient: Client | null = null;
 let xrplClient: Client | null = null;
+let isRunning = false;
 
-function getWitnessSeed(): string {
-  const seed = process.env.WITNESS_SEED;
-  if (!seed) throw new Error("WITNESS_SEED not set in .env");
-  return seed;
-}
-
-function getDoorAddresses() {
-  const xahauDoor = process.env.XAHAU_DOOR_ADDRESS;
-  const xrplDoor = process.env.XRPL_DOOR_ADDRESS;
-  if (!xahauDoor || !xrplDoor) {
-    throw new Error("Missing XAHAU_DOOR_ADDRESS or XRPL_DOOR_ADDRESS");
-  }
-  return { xahauDoor, xrplDoor };
+/** Connection status for health checks */
+export function getConnectionStatus() {
+  return {
+    xahau: xahauClient?.isConnected() ?? false,
+    xrpl: xrplClient?.isConnected() ?? false,
+  };
 }
 
 async function handleTransaction(
@@ -32,16 +25,19 @@ async function handleTransaction(
   sourceChain: "xahau" | "xrpl",
   destClient: Client,
 ) {
-  // Only process XChainCommit transactions
   if (tx.TransactionType !== "XChainCommit") return;
 
-  const meta = tx.meta as Record<string, unknown> | undefined;
-  if (!meta || meta.TransactionResult !== "tesSUCCESS") return;
+  // Check transaction succeeded (meta can be nested or top-level depending on subscription format)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const meta = (tx.meta || (tx as any).metaData) as Record<string, unknown> | undefined;
+  if (meta && meta.TransactionResult !== "tesSUCCESS") return;
 
   const txHash = tx.hash as string;
+  if (!txHash) return;
   if (isProcessed(txHash)) return;
 
-  console.log(`\n[${sourceChain}] XChainCommit detected: ${txHash}`);
+  const name = getWitnessName();
+  console.log(`\n[${name}] [${sourceChain}] XChainCommit: ${txHash}`);
   console.log(`  Amount: ${JSON.stringify(tx.Amount)}`);
   console.log(`  ClaimID: ${tx.XChainClaimID}`);
   console.log(`  Destination: ${tx.OtherChainDestination}`);
@@ -49,60 +45,90 @@ async function handleTransaction(
   const witnessWallet = Wallet.fromSeed(getWitnessSeed());
 
   try {
-    await buildAndSubmitAttestation({
+    const result = await buildAndSubmitAttestation({
       destClient,
       witnessWallet,
       sourceChain,
       commitTx: tx,
     });
-    markProcessed(txHash);
-    console.log(`  ✅ Attestation submitted`);
+    markProcessed(txHash, sourceChain);
+    console.log(`  ✅ Attestation submitted: ${result.txHash}`);
   } catch (err) {
-    console.error(`  ❌ Attestation failed: ${(err as Error).message}`);
+    console.error(`  ❌ Attestation failed after retries: ${(err as Error).message}`);
+    // Don't mark as processed — will retry if the commit is seen again
   }
+}
+
+async function connectAndSubscribe(
+  client: Client,
+  doorAddress: string,
+  chainLabel: string,
+  sourceChain: "xahau" | "xrpl",
+  getDestClient: () => Client,
+) {
+  await client.connect();
+  console.log(`Connected to ${chainLabel}`);
+
+  await client.request({
+    command: "subscribe",
+    accounts: [doorAddress],
+  });
+  console.log(`Watching ${chainLabel} door: ${doorAddress}`);
+
+  // Handle incoming transactions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (client as any).on("transaction", (event: Record<string, unknown>) => {
+    const tx = (event.transaction || event) as Record<string, unknown>;
+    if (tx?.TransactionType) {
+      handleTransaction(tx, sourceChain, getDestClient()).catch((err) => {
+        console.error(`[${chainLabel}] Handler error: ${(err as Error).message}`);
+      });
+    }
+  });
+
+  // Handle disconnection — attempt reconnect
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (client as any).on("disconnected", (code: number) => {
+    console.warn(`[${chainLabel}] Disconnected (code ${code})`);
+    if (isRunning) {
+      console.log(`[${chainLabel}] Reconnecting in 5s...`);
+      setTimeout(() => {
+        connectAndSubscribe(client, doorAddress, chainLabel, sourceChain, getDestClient).catch(
+          (err) => console.error(`[${chainLabel}] Reconnect failed: ${(err as Error).message}`),
+        );
+      }, 5000);
+    }
+  });
 }
 
 export const listener = {
   async start() {
-    const chains = getChains(ENV);
+    const chains = getChains(getEnv());
     const { xahauDoor, xrplDoor } = getDoorAddresses();
+    isRunning = true;
 
-    // Connect to Xahau
     xahauClient = new Client(chains.xahau.wss);
-    await xahauClient.connect();
-    console.log(`Connected to ${chains.xahau.name}`);
-
-    // Connect to XRPL
     xrplClient = new Client(chains.xrpl.wss);
-    await xrplClient.connect();
-    console.log(`Connected to ${chains.xrpl.name}`);
 
-    // Subscribe to Xahau door account (detects Xahau → XRPL commits)
-    await xahauClient.request({
-      command: "subscribe",
-      accounts: [xahauDoor],
-    });
-    console.log(`Watching Xahau door: ${xahauDoor}`);
+    await connectAndSubscribe(
+      xahauClient,
+      xahauDoor,
+      chains.xahau.name,
+      "xahau",
+      () => xrplClient!,
+    );
 
-    xahauClient.on("transaction", (event: Record<string, unknown>) => {
-      const tx = event.transaction as Record<string, unknown>;
-      if (tx) handleTransaction(tx, "xahau", xrplClient!);
-    });
-
-    // Subscribe to XRPL door account (detects XRPL → Xahau commits)
-    await xrplClient.request({
-      command: "subscribe",
-      accounts: [xrplDoor],
-    });
-    console.log(`Watching XRPL door: ${xrplDoor}`);
-
-    xrplClient.on("transaction", (event: Record<string, unknown>) => {
-      const tx = event.transaction as Record<string, unknown>;
-      if (tx) handleTransaction(tx, "xrpl", xahauClient!);
-    });
+    await connectAndSubscribe(
+      xrplClient,
+      xrplDoor,
+      chains.xrpl.name,
+      "xrpl",
+      () => xahauClient!,
+    );
   },
 
   async stop() {
+    isRunning = false;
     if (xahauClient?.isConnected()) await xahauClient.disconnect();
     if (xrplClient?.isConnected()) await xrplClient.disconnect();
     console.log("Disconnected from both chains");

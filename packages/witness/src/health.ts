@@ -3,18 +3,24 @@
  */
 
 import Fastify from "fastify";
-
-const WITNESS_NAME = process.env.WITNESS_NAME || "witness";
+import { getConnectionStatus } from "./listener";
+import { getWitnessName } from "./config";
 
 export async function startHealthServer(port: number) {
   const app = Fastify();
 
-  app.get("/health", async () => ({
-    status: "ok",
-    witness: WITNESS_NAME,
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  }));
+  app.get("/health", async () => {
+    const connections = getConnectionStatus();
+    const healthy = connections.xahau && connections.xrpl;
+
+    return {
+      status: healthy ? "ok" : "degraded",
+      witness: getWitnessName(),
+      connections,
+      uptime: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+    };
+  });
 
   await app.listen({ port, host: "0.0.0.0" });
 }

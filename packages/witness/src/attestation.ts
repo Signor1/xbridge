@@ -3,37 +3,39 @@
  */
 
 import { Client, Wallet } from "@transia/xrpl";
-import { getChains, type NetworkEnv } from "@xbridge/config";
+import { getBridgeDefinition, getChains, getEnv, getRetryConfig } from "./config";
 
-const ENV = (process.env.XBRIDGE_ENV || "testnet") as NetworkEnv;
-
-interface AttestationParams {
+export interface AttestationParams {
   destClient: Client;
   witnessWallet: Wallet;
   sourceChain: "xahau" | "xrpl";
   commitTx: Record<string, unknown>;
 }
 
-export async function buildAndSubmitAttestation(params: AttestationParams) {
+export interface AttestationResult {
+  txHash: string;
+  result: string;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function submitAttestation(params: AttestationParams): Promise<AttestationResult> {
   const { destClient, witnessWallet, sourceChain, commitTx } = params;
-  const chains = getChains(ENV);
-
-  const xahauDoor = process.env.XAHAU_DOOR_ADDRESS!;
-  const xrplDoor = process.env.XRPL_DOOR_ADDRESS!;
-
-  // Build the bridge definition (must match what's on-chain)
-  const bridgeDef = {
-    LockingChainDoor: xahauDoor,
-    LockingChainIssue: { currency: "XRP" },
-    IssuingChainDoor: xrplDoor,
-    IssuingChainIssue: { currency: "XRP" },
-  };
+  const chains = getChains(getEnv());
+  const bridgeDef = getBridgeDefinition();
 
   // Build attestation transaction
   const attestation: Record<string, unknown> = {
     TransactionType: "XChainAddClaimAttestation",
     Account: witnessWallet.address,
-    XChainBridge: bridgeDef,
+    XChainBridge: {
+      LockingChainDoor: bridgeDef.LockingChainDoor,
+      LockingChainIssue: bridgeDef.LockingChainIssue,
+      IssuingChainDoor: bridgeDef.IssuingChainDoor,
+      IssuingChainIssue: bridgeDef.IssuingChainIssue,
+    },
     XChainClaimID: commitTx.XChainClaimID,
     Amount: commitTx.Amount,
     OtherChainSource: commitTx.Account,
@@ -43,23 +45,22 @@ export async function buildAndSubmitAttestation(params: AttestationParams) {
     AttestationSignerAccount: witnessWallet.address,
   };
 
-  // Add NetworkID for Xahau destination
+  // Add NetworkID if destination chain requires it
   const destChain = sourceChain === "xahau" ? chains.xrpl : chains.xahau;
   if (destChain.networkId > 0) {
     attestation.NetworkID = destChain.networkId;
   }
 
-  // Submit
-  const result = await destClient.submitAndWait(attestation, {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await destClient.submitAndWait(attestation as any, {
     wallet: witnessWallet,
     autofill: true,
   });
 
-  const meta = (result.result as Record<string, unknown>).meta as
-    | Record<string, unknown>
-    | undefined;
-  const txResult = meta?.TransactionResult || "unknown";
-  const hash = (result.result as Record<string, unknown>).hash;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r = result.result as any;
+  const txResult = r.meta?.TransactionResult || "unknown";
+  const hash = r.hash || "";
 
   console.log(`  Attestation result: ${txResult} (${hash})`);
 
@@ -68,4 +69,32 @@ export async function buildAndSubmitAttestation(params: AttestationParams) {
   }
 
   return { txHash: hash, result: txResult };
+}
+
+/**
+ * Build and submit attestation with retry logic
+ */
+export async function buildAndSubmitAttestation(
+  params: AttestationParams,
+): Promise<AttestationResult> {
+  const { maxRetries, retryDelayMs } = getRetryConfig();
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await submitAttestation(params);
+    } catch (err) {
+      const msg = (err as Error).message;
+      console.error(`  Attempt ${attempt}/${maxRetries} failed: ${msg}`);
+
+      if (attempt < maxRetries) {
+        console.log(`  Retrying in ${retryDelayMs}ms...`);
+        await sleep(retryDelayMs);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // Unreachable, but TypeScript needs it
+  throw new Error("Attestation failed after all retries");
 }
