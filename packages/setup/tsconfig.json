@@ -4,7 +4,9 @@
     "outDir": "dist",
     "rootDir": "scripts",
     "module": "CommonJS",
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "noEmit": true,
+    "skipLibCheck": true
   },
   "include": ["scripts"]
 }
