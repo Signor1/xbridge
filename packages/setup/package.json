@@ -3,17 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "fund-doors": "ts-node scripts/01-fund-doors.ts",
-    "create-bridge": "ts-node scripts/02-create-bridge.ts",
-    "set-signers": "ts-node scripts/03-set-signer-list.ts",
-    "setup-trust": "ts-node scripts/04-setup-trust.ts",
-    "verify": "ts-node scripts/05-verify.ts",
-    "save-config": "ts-node scripts/06-save-config.ts",
-    "setup-all": "ts-node scripts/01-fund-doors.ts && ts-node scripts/02-create-bridge.ts && ts-node scripts/03-set-signer-list.ts && ts-node scripts/05-verify.ts && ts-node scripts/06-save-config.ts",
+    "fund": "ts-node --transpile-only scripts/01-fund-accounts.ts",
+    "signers": "ts-node --transpile-only scripts/02-set-signer-list.ts",
+    "disable-master": "ts-node --transpile-only scripts/03-disable-master.ts",
+    "verify": "ts-node --transpile-only scripts/04-verify.ts",
+    "save-config": "ts-node --transpile-only scripts/05-save-config.ts",
+    "setup-all": "ts-node --transpile-only scripts/01-fund-accounts.ts && ts-node --transpile-only scripts/02-set-signer-list.ts && ts-node --transpile-only scripts/04-verify.ts && ts-node --transpile-only scripts/05-save-config.ts",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@transia/xrpl": "^2.7.3-alpha.28",
+    "xrpl": "^4.6.0",
     "@xbridge/config": "workspace:*",
     "dotenv": "^17.2.0"
   },

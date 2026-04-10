@@ -1,15 +1,33 @@
 {
   "name": "xbridge-testnet",
   "env": "testnet",
-  "bridge": {
-    "LockingChainDoor": "",
-    "LockingChainIssue": { "currency": "XRP" },
-    "IssuingChainDoor": "",
-    "IssuingChainIssue": { "currency": "XRP" },
-    "SignatureReward": "100",
-    "MinAccountCreateAmount": "10000000"
+  "xahauDoor": "rL4RvGq6PYqjyLgPKSBHnUpBkMFWJYDHKA",
+  "xrplDoor": "rDUiuyrdBZMYDSXbWRTrHkobAiadbiZvHA",
+  "token": {
+    "currency": "XRP"
   },
-  "witnesses": [],
-  "quorum": 2,
-  "_comment": "Fill door accounts and witnesses after running setup scripts"
+  "witnesses": [
+    {
+      "name": "witness-1",
+      "publicKey": "ED8505EC88C7E42949FF9C447BBE4571CD105CAC264240CB9B1521489A4137AFD2",
+      "xahauAccount": "rprDSMWug4AFZzK11iV8XwaYcs6PdgroSB",
+      "xrplAccount": "rprDSMWug4AFZzK11iV8XwaYcs6PdgroSB",
+      "peerUrl": "http://localhost:3001"
+    },
+    {
+      "name": "witness-2",
+      "publicKey": "EDBE48722B5DA1D7AA333C9FAFD186E73CD281E5FAB8D50C939F6AAF2FA099E427",
+      "xahauAccount": "rUhFzUvw5mP6EVfsro6VekPuG51sDaMMgC",
+      "xrplAccount": "rUhFzUvw5mP6EVfsro6VekPuG51sDaMMgC",
+      "peerUrl": "http://localhost:3002"
+    },
+    {
+      "name": "witness-3",
+      "publicKey": "ED6D67064F3BAE1656CA6AF87E616FAB45196E9F5E449CFCA227A3E60448336924",
+      "xahauAccount": "r3TaEF3zF94zwPj2yWp5xdcQTMmz5h9Mke",
+      "xrplAccount": "r3TaEF3zF94zwPj2yWp5xdcQTMmz5h9Mke",
+      "peerUrl": "http://localhost:3003"
+    }
+  ],
+  "quorum": 2
 }

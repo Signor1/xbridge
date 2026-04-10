@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@transia/xrpl": "^2.7.3-alpha.28",
+    "xrpl": "^4.6.0",
     "@xbridge/config": "workspace:*",
     "better-sqlite3": "^11.0.0",
     "dotenv": "^17.2.0",

@@ -1,24 +1,26 @@
-// SDK client
 export { BridgeClient } from "./client";
-export type {
-  BridgeClientConfig,
-  CreateClaimIdParams,
-  CommitParams,
-  ClaimStatus,
-  TransferResult,
-} from "./client";
+export type { BridgeClientConfig, LockParams, LockTransaction } from "./client";
 
-// Re-export config types for convenience
+// Re-export config types
 export {
   getChains,
-  accountUrl,
+  getOtherChain,
+  buildLockMemo,
+  parseMemo,
   txUrl,
+  accountUrl,
+  nativeToken,
+  iouToken,
+  isNativeToken,
+  computeAttestationHash,
   type NetworkEnv,
-  type BridgeDefinition,
-  type BridgeDirection,
+  type ChainId,
   type ChainConfig,
-  type ChainIssue,
-  type TransferStatus,
-  type Transfer,
+  type TokenIssue,
   type BridgeConfig,
+  type LockEvent,
+  type Attestation,
+  type ReleaseEvent,
+  type Transfer,
+  type TransferStatus,
 } from "@xbridge/config";

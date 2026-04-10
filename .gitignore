@@ -10,3 +10,5 @@ coverage
 *.log
 .DS_Store
 XAHAU_XRPL_BRIDGE_RESEARCH.md
+data/
+data/*.db

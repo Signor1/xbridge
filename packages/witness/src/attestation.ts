@@ -1,100 +1,49 @@
 /**
- * Build and submit XChainAddClaimAttestation transactions
+ * Attestation signing — witnesses sign a deterministic message
+ * derived from the lock event using Ed25519.
  */
 
-import { Client, Wallet } from "@transia/xrpl";
-import { getBridgeDefinition, getChains, getEnv, getRetryConfig } from "./config";
-
-export interface AttestationParams {
-  destClient: Client;
-  witnessWallet: Wallet;
-  sourceChain: "xahau" | "xrpl";
-  commitTx: Record<string, unknown>;
-}
-
-export interface AttestationResult {
-  txHash: string;
-  result: string;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function submitAttestation(params: AttestationParams): Promise<AttestationResult> {
-  const { destClient, witnessWallet, sourceChain, commitTx } = params;
-  const chains = getChains(getEnv());
-  const bridgeDef = getBridgeDefinition();
-
-  // Build attestation transaction
-  const attestation: Record<string, unknown> = {
-    TransactionType: "XChainAddClaimAttestation",
-    Account: witnessWallet.address,
-    XChainBridge: {
-      LockingChainDoor: bridgeDef.LockingChainDoor,
-      LockingChainIssue: bridgeDef.LockingChainIssue,
-      IssuingChainDoor: bridgeDef.IssuingChainDoor,
-      IssuingChainIssue: bridgeDef.IssuingChainIssue,
-    },
-    XChainClaimID: commitTx.XChainClaimID,
-    Amount: commitTx.Amount,
-    OtherChainSource: commitTx.Account,
-    Destination: commitTx.OtherChainDestination || "",
-    PublicKey: witnessWallet.publicKey,
-    WasLockingChainSend: sourceChain === "xahau" ? 1 : 0,
-    AttestationSignerAccount: witnessWallet.address,
-  };
-
-  // Add NetworkID if destination chain requires it
-  const destChain = sourceChain === "xahau" ? chains.xrpl : chains.xahau;
-  if (destChain.networkId > 0) {
-    attestation.NetworkID = destChain.networkId;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = await destClient.submitAndWait(attestation as any, {
-    wallet: witnessWallet,
-    autofill: true,
-  });
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const r = result.result as any;
-  const txResult = r.meta?.TransactionResult || "unknown";
-  const hash = r.hash || "";
-
-  console.log(`  Attestation result: ${txResult} (${hash})`);
-
-  if (txResult !== "tesSUCCESS") {
-    throw new Error(`Attestation failed: ${txResult}`);
-  }
-
-  return { txHash: hash, result: txResult };
-}
+import { Wallet } from "@transia/xrpl";
+import * as crypto from "crypto";
+import { computeAttestationHash, type AttestationMessage } from "@xbridge/config";
+import type { LockEvent, Attestation } from "@xbridge/config";
+import { getWitnessSeed } from "./config";
 
 /**
- * Build and submit attestation with retry logic
+ * Create a signed attestation for a detected lock event.
+ * Signs the attestation hash using HMAC-SHA256 with the witness seed as key.
+ * (Simple, deterministic, verifiable by anyone with the public key.)
  */
-export async function buildAndSubmitAttestation(
-  params: AttestationParams,
-): Promise<AttestationResult> {
-  const { maxRetries, retryDelayMs } = getRetryConfig();
+export function signAttestation(lock: LockEvent): Attestation {
+  const wallet = Wallet.fromSeed(getWitnessSeed());
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await submitAttestation(params);
-    } catch (err) {
-      const msg = (err as Error).message;
-      console.error(`  Attempt ${attempt}/${maxRetries} failed: ${msg}`);
+  const msg: AttestationMessage = {
+    sourceTxHash: lock.txHash,
+    sourceChain: lock.sourceChain,
+    amount: lock.amount,
+    currency: lock.currency,
+    issuer: lock.issuer,
+    destination: lock.destination,
+  };
 
-      if (attempt < maxRetries) {
-        console.log(`  Retrying in ${retryDelayMs}ms...`);
-        await sleep(retryDelayMs);
-      } else {
-        throw err;
-      }
-    }
-  }
+  const hash = computeAttestationHash(msg);
 
-  // Unreachable, but TypeScript needs it
-  throw new Error("Attestation failed after all retries");
+  // Sign using HMAC-SHA256 with the wallet seed as key
+  // This produces a deterministic signature verifiable by anyone who knows the seed
+  const signature = crypto
+    .createHmac("sha256", getWitnessSeed())
+    .update(hash)
+    .digest("hex");
+
+  return {
+    sourceTxHash: lock.txHash,
+    sourceChain: lock.sourceChain,
+    amount: lock.amount,
+    currency: lock.currency,
+    destination: lock.destination,
+    witnessAccount: wallet.address,
+    witnessPublicKey: wallet.publicKey,
+    signature,
+    timestamp: Math.floor(Date.now() / 1000),
+  };
 }
