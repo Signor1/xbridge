@@ -4,12 +4,12 @@
 
 import type { ChainConfig } from "./chains";
 
-/** Link to an account on the explorer */
 export function accountUrl(chain: ChainConfig, address: string): string {
   return `${chain.explorer}/account/${address}`;
 }
 
-/** Link to a transaction on the explorer */
 export function txUrl(chain: ChainConfig, hash: string): string {
-  return `${chain.explorer}/tx/${hash}`;
+  // XRPL explorers use /transactions/, Xahau xrplwin uses /tx/
+  const path = chain.explorer.includes("xrplwin") ? "tx" : "transactions";
+  return `${chain.explorer}/${path}/${hash}`;
 }

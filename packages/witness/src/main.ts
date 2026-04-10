@@ -1,44 +1,40 @@
 /**
  * XBridge Witness Server
  *
- * Watches both Xahau and XRPL for XChainCommit transactions
- * and submits XChainAddClaimAttestation on the destination chain.
+ * Watches both chains for Payment locks to door accounts,
+ * signs attestations, exchanges with peers, and submits
+ * multi-signed release transactions when quorum is reached.
  */
 
 import "dotenv/config";
 import { listener } from "./listener";
-import { startHealthServer } from "./health";
+import { startServer } from "./server";
 import { initDb } from "./db";
-import { getWitnessName, getEnv, getDoorAddresses, getBridgeDefinition } from "./config";
+import { getWitnessName, getEnv, getDoors, getQuorum, getPeerUrls } from "./config";
 
-const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || "3000", 10);
+const PORT = parseInt(process.env.PORT || "3000", 10);
 
 async function main() {
   const name = getWitnessName();
   const env = getEnv();
+  const doors = getDoors();
+  const peers = getPeerUrls();
 
   console.log(`\n=== XBridge Witness: ${name} (${env}) ===\n`);
+  console.log(`Xahau door: ${doors.xahau}`);
+  console.log(`XRPL door:  ${doors.xrpl}`);
+  console.log(`Quorum:     ${getQuorum()}`);
+  console.log(`Peers:      ${peers.length > 0 ? peers.join(", ") : "none (standalone)"}`);
 
-  // Validate config early
-  const doors = getDoorAddresses();
-  const bridge = getBridgeDefinition();
-  console.log(`Xahau door: ${doors.xahauDoor}`);
-  console.log(`XRPL door:  ${doors.xrplDoor}`);
-  console.log(`Token:      ${bridge.LockingChainIssue.currency}`);
-
-  // Initialize SQLite for idempotency
   initDb();
 
-  // Start health endpoint
-  await startHealthServer(HEALTH_PORT);
-  console.log(`Health:     http://localhost:${HEALTH_PORT}/health`);
+  await startServer(PORT);
+  console.log(`Server:     http://localhost:${PORT}/health`);
 
-  // Subscribe to both chains
   await listener.start();
 
-  console.log(`\n${name} running. Watching for XChainCommit events...\n`);
+  console.log(`\n${name} running. Watching for lock events...\n`);
 
-  // Graceful shutdown
   const shutdown = async () => {
     console.log("\nShutting down...");
     await listener.stop();
@@ -50,6 +46,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Witness failed to start:", err);
+  console.error("Witness failed:", err);
   process.exit(1);
 });

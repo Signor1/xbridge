@@ -1,18 +1,20 @@
 /**
- * Chain listener — subscribes to both chains, detects XChainCommit,
- * and triggers attestation. Handles reconnection on WebSocket drop.
+ * Chain listener — subscribes to door accounts on both chains,
+ * detects lock Payments, and triggers attestation + release flow.
  */
 
-import { Client, Wallet } from "@transia/xrpl";
-import { buildAndSubmitAttestation } from "./attestation";
-import { isProcessed, markProcessed } from "./db";
-import { getChains, getDoorAddresses, getEnv, getWitnessSeed, getWitnessName } from "./config";
+import { Client } from "@transia/xrpl";
+import { parseMemo, type LockEvent, type ChainId, getOtherChain } from "@xbridge/config";
+import { getChainConfig, getDoorAddress, getWitnessName } from "./config";
+import { signAttestation } from "./attestation";
+import { isLockProcessed, isLockReleased, saveLock, saveAttestation, getAttestationCount } from "./db";
+import { broadcastAttestation } from "./peer";
+import { tryRelease } from "./releaser";
 
 let xahauClient: Client | null = null;
 let xrplClient: Client | null = null;
 let isRunning = false;
 
-/** Connection status for health checks */
 export function getConnectionStatus() {
   return {
     xahau: xahauClient?.isConnected() ?? false,
@@ -22,79 +24,95 @@ export function getConnectionStatus() {
 
 async function handleTransaction(
   tx: Record<string, unknown>,
-  sourceChain: "xahau" | "xrpl",
-  destClient: Client,
+  sourceChain: ChainId,
 ) {
-  if (tx.TransactionType !== "XChainCommit") return;
+  // Only process successful Payments to the door account
+  if (tx.TransactionType !== "Payment") return;
 
-  // Check transaction succeeded (meta can be nested or top-level depending on subscription format)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const meta = (tx.meta || (tx as any).metaData) as Record<string, unknown> | undefined;
   if (meta && meta.TransactionResult !== "tesSUCCESS") return;
 
   const txHash = tx.hash as string;
   if (!txHash) return;
-  if (isProcessed(txHash)) return;
+
+  // Check if this Payment is to the door account
+  const doorAddress = getDoorAddress(sourceChain);
+  if (tx.Destination !== doorAddress) return;
+
+  // Parse memo for bridge lock instruction
+  const memos = tx.Memos as Array<{ Memo: { MemoType?: string; MemoData?: string } }> | undefined;
+  if (!memos || memos.length === 0) return;
+
+  const parsed = parseMemo(memos[0]!);
+  if (!parsed || parsed.type !== "lock") return;
+
+  // Already processed?
+  if (isLockProcessed(txHash)) return;
+
+  const lock: LockEvent = {
+    txHash,
+    sourceChain,
+    destChain: getOtherChain(sourceChain),
+    sender: tx.Account as string,
+    destination: parsed.data.destination,
+    amount: typeof tx.Amount === "string" ? tx.Amount : (tx.Amount as Record<string, string>).value,
+    currency: typeof tx.Amount === "string" ? "XRP" : (tx.Amount as Record<string, string>).currency,
+    issuer: typeof tx.Amount === "object" ? (tx.Amount as Record<string, string>).issuer : undefined,
+    detectedAt: Math.floor(Date.now() / 1000),
+  };
 
   const name = getWitnessName();
-  console.log(`\n[${name}] [${sourceChain}] XChainCommit: ${txHash}`);
-  console.log(`  Amount: ${JSON.stringify(tx.Amount)}`);
-  console.log(`  ClaimID: ${tx.XChainClaimID}`);
-  console.log(`  Destination: ${tx.OtherChainDestination}`);
+  console.log(`\n[${name}] Lock detected on ${sourceChain}: ${txHash}`);
+  console.log(`  Amount: ${lock.amount} ${lock.currency}`);
+  console.log(`  Destination: ${lock.destination}`);
 
-  const witnessWallet = Wallet.fromSeed(getWitnessSeed());
+  // Save lock
+  saveLock(txHash, sourceChain, lock.amount, lock.destination);
 
-  try {
-    const result = await buildAndSubmitAttestation({
-      destClient,
-      witnessWallet,
-      sourceChain,
-      commitTx: tx,
-    });
-    markProcessed(txHash, sourceChain);
-    console.log(`  ✅ Attestation submitted: ${result.txHash}`);
-  } catch (err) {
-    console.error(`  ❌ Attestation failed after retries: ${(err as Error).message}`);
-    // Don't mark as processed — will retry if the commit is seen again
-  }
+  // Sign attestation
+  const attestation = signAttestation(lock);
+  saveAttestation(txHash, attestation.witnessAccount, attestation.witnessPublicKey, attestation.signature);
+  console.log(`  Attestation signed`);
+
+  // Broadcast to peer witnesses
+  await broadcastAttestation(attestation);
+
+  // Check if we have quorum and can release
+  await tryRelease(lock);
 }
 
 async function connectAndSubscribe(
   client: Client,
-  doorAddress: string,
-  chainLabel: string,
-  sourceChain: "xahau" | "xrpl",
-  getDestClient: () => Client,
+  chain: ChainId,
 ) {
+  const chainConfig = getChainConfig(chain);
   await client.connect();
-  console.log(`Connected to ${chainLabel}`);
+  console.log(`Connected to ${chainConfig.name}`);
 
-  await client.request({
-    command: "subscribe",
-    accounts: [doorAddress],
-  });
-  console.log(`Watching ${chainLabel} door: ${doorAddress}`);
+  const doorAddress = getDoorAddress(chain);
+  await client.request({ command: "subscribe", accounts: [doorAddress] });
+  console.log(`Watching ${chain} door: ${doorAddress}`);
 
-  // Handle incoming transactions
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (client as any).on("transaction", (event: Record<string, unknown>) => {
     const tx = (event.transaction || event) as Record<string, unknown>;
     if (tx?.TransactionType) {
-      handleTransaction(tx, sourceChain, getDestClient()).catch((err) => {
-        console.error(`[${chainLabel}] Handler error: ${(err as Error).message}`);
+      handleTransaction(tx, chain).catch((err) => {
+        console.error(`[${chain}] Handler error: ${(err as Error).message}`);
       });
     }
   });
 
-  // Handle disconnection — attempt reconnect
+  // Reconnect on disconnect
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (client as any).on("disconnected", (code: number) => {
-    console.warn(`[${chainLabel}] Disconnected (code ${code})`);
+    console.warn(`[${chain}] Disconnected (${code})`);
     if (isRunning) {
-      console.log(`[${chainLabel}] Reconnecting in 5s...`);
+      console.log(`[${chain}] Reconnecting in 5s...`);
       setTimeout(() => {
-        connectAndSubscribe(client, doorAddress, chainLabel, sourceChain, getDestClient).catch(
-          (err) => console.error(`[${chainLabel}] Reconnect failed: ${(err as Error).message}`),
+        connectAndSubscribe(client, chain).catch((err) =>
+          console.error(`[${chain}] Reconnect failed: ${(err as Error).message}`),
         );
       }, 5000);
     }
@@ -103,28 +121,19 @@ async function connectAndSubscribe(
 
 export const listener = {
   async start() {
-    const chains = getChains(getEnv());
-    const { xahauDoor, xrplDoor } = getDoorAddresses();
     isRunning = true;
+    const xahauConfig = getChainConfig("xahau");
+    const xrplConfig = getChainConfig("xrpl");
 
-    xahauClient = new Client(chains.xahau.wss);
-    xrplClient = new Client(chains.xrpl.wss);
+    xahauClient = new Client(xahauConfig.wss);
+    // Xahau requires apiVersion 1
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (xahauConfig.apiVersion === 1) (xahauClient as any).apiVersion = 1;
 
-    await connectAndSubscribe(
-      xahauClient,
-      xahauDoor,
-      chains.xahau.name,
-      "xahau",
-      () => xrplClient!,
-    );
+    xrplClient = new Client(xrplConfig.wss);
 
-    await connectAndSubscribe(
-      xrplClient,
-      xrplDoor,
-      chains.xrpl.name,
-      "xrpl",
-      () => xahauClient!,
-    );
+    await connectAndSubscribe(xahauClient, "xahau");
+    await connectAndSubscribe(xrplClient, "xrpl");
   },
 
   async stop() {
@@ -132,5 +141,10 @@ export const listener = {
     if (xahauClient?.isConnected()) await xahauClient.disconnect();
     if (xrplClient?.isConnected()) await xrplClient.disconnect();
     console.log("Disconnected from both chains");
+  },
+
+  /** Get client for a chain (used by releaser) */
+  getClient(chain: ChainId): Client | null {
+    return chain === "xahau" ? xahauClient : xrplClient;
   },
 };
